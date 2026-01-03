@@ -3,22 +3,27 @@ package main
 
 import (
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
-	"io/fs"
+	"strings"
 )
 
-type Stats struct (
-	FileCount int
-)
+// type Stats struct (
+// 	FileCount int
+// )
 
 func main() {
-	fileCount, dirCount, count := 0, 0, 0
 	startingDirectory := os.Args[1]
+	target := "main.go"
+	temp := findAndExit(startingDirectory, target, true)
+	println(temp)
+	return 
 
+
+	fileCount, dirCount, count := 0, 0, 0
 	var files []string
 	var dirs []string
-
 	// https://dev.to/rezmoss/file-system-walking-with-walkdir-recursive-tree-traversal-49-dj3
 	err := filepath.WalkDir(startingDirectory, func(path string, d fs.DirEntry, err error) error{
 		if d.IsDir(){
@@ -34,17 +39,32 @@ func main() {
 	if err == nil{
 		fmt.Println(count)
 		fmt.Println(fileCount)
-		fmt.Println(files)
+		// fmt.Println(files)
 		fmt.Println(dirCount)
-		fmt.Println(dirs)
-		// for _, name := range(files){
-		// 	fmt.pr
-		// }
+		// fmt.Println(dirs)
 	}
 
 }
 
-func incCount(count *int)  {
-	(*count) += 1
-	return
+func findAndExit(startingDir string, target string, dotFilesSkip bool) string {
+	rv := ""
+	
+	err := filepath.WalkDir(startingDir, findAndExitFunc(target, dotFilesSkip, &rv))
+	if err != nil {
+		fmt.Println("We have an error on aisle 5")
+	}
+	return rv
+}
+
+// return a WalkDirFunc later called 
+func findAndExitFunc(target string, dotfilesSkip bool, rv *string) fs.WalkDirFunc{
+	return func(path string, d fs.DirEntry, err error) error {
+		if dotfilesSkip && d.IsDir() && strings.HasPrefix(d.Name(), ".") { 
+			return filepath.SkipDir
+		} else if d.Name() == target {
+			(*rv) += path
+			return filepath.SkipAll // early break out bc target found
+		}
+		return nil
+	}
 }
