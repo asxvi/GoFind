@@ -1,10 +1,8 @@
-// package goFind
 package main
 
 import (
 	"fmt"
 	"io/fs"
-	// "os"
 	"path/filepath"
 	"strings"
 )
@@ -28,11 +26,9 @@ func printStats(stats Stats) {
 
 func main() {
 	cliUtility()
-
-	return
 }
 
-func cliUtility() {	
+func cliUtility() {
 	var startingDir string
 	fmt.Print("Enter Starting directory: ")
 	fmt.Scanf("%s", &startingDir)
@@ -41,41 +37,41 @@ func cliUtility() {
 
 	input := "0"
 	for input != "-1" {
-		
+
 		fmt.Print("Enter\n  * 1 to find a file\n  * 2 for directory stats\n  * -1 to quit\n")
 		fmt.Scanf("%s", &input)
-		
-		switch input {
-			case "1":
-				var target string
-				fmt.Print("Enter target: ")
-				fmt.Scanf("%s", &target)
-				var dotFilesSkip bool
-				var dotFileChar string
-				fmt.Print("skip hidden stuff (y/n): ")
-				fmt.Scanf("%s", &dotFileChar)
-				
-				if dotFileChar == "y" {
-					dotFilesSkip = true
-				} else {
-					dotFilesSkip = false	
-				}
 
-				targetPath, err := findAndExit(startingDir, target, dotFilesSkip)
-				if err != nil {
-					fmt.Println("Error: ", err)
-				} else if targetPath == ""{
-					fmt.Printf("Target %s not found", target)	
-				}else{
-					fmt.Printf("Target %s found at path: %s", target, targetPath)
-				}
-			case "2":
-				dirStats, err := findDirStats(startingDir, true)
-				if err != nil {
-					fmt.Println("Error: ", err)
-				}else{
-					printStats(dirStats)
-				}
+		switch input {
+		case "1":
+			var target string
+			fmt.Print("Enter target: ")
+			fmt.Scanf("%s", &target)
+			var dotFilesSkip bool
+			var dotFileChar string
+			fmt.Print("skip hidden stuff (y/n): ")
+			fmt.Scanf("%s", &dotFileChar)
+
+			if dotFileChar == "y" {
+				dotFilesSkip = true
+			} else {
+				dotFilesSkip = false
+			}
+
+			targetPath, err := findAndExit(startingDir, target, dotFilesSkip)
+			if err != nil {
+				fmt.Println("Error: ", err)
+			} else if targetPath == "" {
+				fmt.Printf("Target %s not found", target)
+			} else {
+				fmt.Printf("Target %s found at path: %s", target, targetPath)
+			}
+		case "2":
+			dirStats, err := findDirStats(startingDir, true)
+			if err != nil {
+				fmt.Println("Error: ", err)
+			} else {
+				printStats(dirStats)
+			}
 		default:
 			fmt.Println("invalid input. try again")
 		}
@@ -95,10 +91,13 @@ func findAndExit(startingDir string, target string, dotFilesSkip bool) (string, 
 // return a WalkDirFunc later called
 func findAndExitFunc(target string, dotfilesSkip bool, rv *string) fs.WalkDirFunc {
 	return func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
 		if dotfilesSkip && d.IsDir() && strings.HasPrefix(d.Name(), ".") {
 			return filepath.SkipDir
 		} else if d.Name() == target {
-			(*rv) += path
+			*rv = path
 			return filepath.SkipAll // early break out bc target found
 		}
 		return nil
@@ -117,6 +116,10 @@ func findDirStats(startingDir string, dotFilesSkip bool) (Stats, error) {
 
 func findDirStatsFunc(dotfilesSkip bool, stats *Stats) fs.WalkDirFunc {
 	return func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+
 		if dotfilesSkip && d.IsDir() && strings.HasPrefix(d.Name(), ".") {
 			return filepath.SkipDir
 		} else {
