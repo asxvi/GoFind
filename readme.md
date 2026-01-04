@@ -1,5 +1,6 @@
 # goFind
-#### A CLI utility for getting overview of projects and directories.
+<!-- #### A CLI utility for getting overview of projects and directories. -->
+### A safe, readable alternative to find + du
 
 ## Motivation
 When working on larger projects, unfamiliar codebases, or just learning to program this utility can assist in understanding what you are working with.

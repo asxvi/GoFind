@@ -1,8 +1,10 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"io/fs"
+	// "os"
 	"path/filepath"
 	"strings"
 )
@@ -17,18 +19,55 @@ type Stats struct {
 
 func printStats(stats Stats) {
 	fmt.Printf(`
-		Total Count: %d
-		File Count:  %d
-		Dir Count:   %d
-		Total Size:  %d bytes or __ gb
+  Total Count: %d
+  File Count:  %d
+  Dir Count:   %d
+  Total Size:  %d bytes or __ gb
 	`, stats.totCount, stats.fileCount, stats.dirCount, stats.totByteSize)
 }
 
+// gofind starting dir [-t target] [-s stats] [-h don't ignore hidden]
 func main() {
 	cliUtility()
 }
 
 func cliUtility() {
+	target := flag.String("t", "", "File or directory to look for")
+	stats := flag.Bool("s", false, "Show stats of src directory")
+	hiddenFiles := flag.Bool("h", false, "Include hidden files. Default No")
+	// flag.Bool("j", false, "Output JSON")
+
+	flag.Parse()
+
+	args := flag.Args()
+	if len(args) < 1 {
+		fmt.Println("Usage: gofind [flags] <startingDir>")
+		return
+	}
+	startingDir := args[0]
+
+	if *target != ""{
+		targetPath, err := findAndExit(startingDir, *target, *hiddenFiles)
+		if err != nil {
+			fmt.Println("Error: ", err)
+		} else if targetPath == "" {
+			fmt.Printf("Target %s not found", *target)
+		} else {
+			fmt.Printf("Target %s found at path: %s", *target, targetPath)
+		}
+	}	
+	if *stats == true{
+		dirStats, err := findDirStats(startingDir, *hiddenFiles)
+		if err != nil {
+				fmt.Println("Error: ", err)
+		} else {
+			printStats(dirStats)
+		}
+	}
+}
+
+// useless
+func cliMenu() { 
 	var startingDir string
 	fmt.Print("Enter Starting directory: ")
 	fmt.Scanf("%s", &startingDir)
