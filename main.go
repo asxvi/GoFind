@@ -4,9 +4,11 @@ import (
 	"flag"
 	"fmt"
 	"io/fs"
-	// "os"
+	"os"
+	// "path"
 	"path/filepath"
 	"strings"
+	"sync"
 )
 
 type Stats struct {
@@ -16,6 +18,23 @@ type Stats struct {
 	totByteSize uint64
 	maxDepth    int64
 }
+
+type ScannedFile2 struct {
+	Path string
+	Info fs.FileInfo
+	sync.Mutex
+}
+
+
+type ScannedFile struct {
+	Path string
+	Info fs.FileInfo
+}
+type ScanResult struct {
+	Files []ScannedFile
+	sync.Mutex
+}
+
 
 func printStats(stats Stats) {
 	fmt.Printf(`
@@ -29,91 +48,104 @@ func printStats(stats Stats) {
 // gofind starting dir [-t target] [-s stats] [-h don't ignore hidden]
 func main() {
 	cliUtility()
+	
+	alex, e := findAndExitGoRoutine("/Users/asxvi/Desktop/projects/", "main.go")
+	if e!=nil{
+		fmt.Print(alex)
+	}
+	
 }
 
-func cliUtility() {
-	target := flag.String("t", "", "File or directory to look for")
-	stats := flag.Bool("s", false, "Show stats of src directory")
-	hiddenFiles := flag.Bool("h", false, "Include hidden files. Default No")
-	// flag.Bool("j", false, "Output JSON")
+// have to implement our own recursive function using go routines for cc
+// returns error if error, the path if found, or "" if nothing found after full traversal
+func findAndExitGoRoutine(startingDir string, target string) (ScannedFile2, error){
+	var rv ScannedFile2
+	var wg sync.WaitGroup
+	
+	/*
+	// should be dynamic by end user
+	*/
+	numCPU := 1
+	numConcurrent := 4
 
-	flag.Parse()
+	// use struct bc its smallest data type, literally nothing, but can use other type
+	// https://stackoverflow.com/questions/52035390/why-using-chan-struct-when-wait-something-done-not-chan-interface
+	semaphore := make(chan struct{}, (numCPU * numConcurrent))
+	errorChan := make(chan error,1)		// capture errors and break out
+	finishedChan := make(chan int)	// signal done and exit
 
-	args := flag.Args()
-	if len(args) < 1 {
-		fmt.Println("Usage: gofind [flags] <startingDir>")
-		return
-	}
-	startingDir := args[0]
+	numFuncCalls := 0
+	var myCCWalkDir func(string)
+	// can perhaps declare this outside or nah bc vars wont be local and will have to pass by ref
+	myCCWalkDir = func (currDir string) {
+		numFuncCalls++
 
-	if *target != ""{
-		targetPath, err := findAndExit(startingDir, *target, *hiddenFiles)
+		defer wg.Done()	// on return decrement wg counter
+		semaphore <- struct{}{}	// read in / aquire slot 
+		defer func() {<-semaphore}()	// release slot
+
+		// break out on error, otherwise try to find data
+		stuff, err := os.ReadDir(currDir)
 		if err != nil {
-			fmt.Println("Error: ", err)
-		} else if targetPath == "" {
-			fmt.Printf("Target %s not found", *target)
-		} else {
-			fmt.Printf("Target %s found at path: %s", *target, targetPath)
-		}
-	}	
-	if *stats == true{
-		dirStats, err := findDirStats(startingDir, *hiddenFiles)
-		if err != nil {
-				fmt.Println("Error: ", err)
-		} else {
-			printStats(dirStats)
-		}
-	}
-}
-
-// useless
-func cliMenu() { 
-	var startingDir string
-	fmt.Print("Enter Starting directory: ")
-	fmt.Scanf("%s", &startingDir)
-
-	// ADD functionality for $HOME and other CLI functionality
-
-	input := "0"
-	for input != "-1" {
-
-		fmt.Print("Enter\n  * 1 to find a file\n  * 2 for directory stats\n  * -1 to quit\n")
-		fmt.Scanf("%s", &input)
-
-		switch input {
-		case "1":
-			var target string
-			fmt.Print("Enter target: ")
-			fmt.Scanf("%s", &target)
-			var dotFilesSkip bool
-			var dotFileChar string
-			fmt.Print("skip hidden stuff (y/n): ")
-			fmt.Scanf("%s", &dotFileChar)
-
-			if dotFileChar == "y" {
-				dotFilesSkip = true
-			} else {
-				dotFilesSkip = false
+			select {
+				case errorChan <-err:
+				default:
 			}
-
-			targetPath, err := findAndExit(startingDir, target, dotFilesSkip)
-			if err != nil {
-				fmt.Println("Error: ", err)
-			} else if targetPath == "" {
-				fmt.Printf("Target %s not found", target)
-			} else {
-				fmt.Printf("Target %s found at path: %s", target, targetPath)
-			}
-		case "2":
-			dirStats, err := findDirStats(startingDir, true)
-			if err != nil {
-				fmt.Println("Error: ", err)
-			} else {
-				printStats(dirStats)
-			}
-		default:
-			fmt.Println("invalid input. try again")
+			return
 		}
+
+		// go thru every subfile and subdir and search for file
+		for _, s := range stuff{
+			info, err := s.Info()
+			if err != nil{
+				select {
+					case errorChan <-err:
+					default:
+				}
+				continue
+			}
+			
+			fullpath := filepath.Join(currDir, s.Name())
+			if info.Name() == target {	// FOUND and exit
+				tempInfo, e := s.Info()
+				if e != nil{
+					select {
+					case errorChan <-err:
+					default:
+					}
+					return	// not sure what to do here
+				}
+
+				rv.Path = fullpath
+				rv.Info = tempInfo
+				finishedChan<-0
+			}else if info.IsDir(){		//recursive traverse this dir
+				wg.Add(1)
+				go myCCWalkDir(fullpath)	// go routine on this if semaphore allow
+			}
+		}
+	}	// sempahore slot released
+	
+	// base cc call from startingDir
+	wg.Add(1)
+	go myCCWalkDir(startingDir)
+	
+	// let all goroutines cook
+	go func(){
+		fmt.Println("waiting")
+		wg.Wait()
+		close(finishedChan)
+		// fmt.Printf("done waiting after %d function calls\n", numFuncCalls)
+	}()
+	
+	select {
+		case <-finishedChan:
+			fmt.Println("yoyoyo")
+			return rv, nil
+		case err := <-errorChan:
+			var blankRV ScannedFile2
+			fmt.Println("eeee")
+			return blankRV, err
 	}
 }
 
@@ -179,5 +211,92 @@ func findDirStatsFunc(dotfilesSkip bool, stats *Stats) fs.WalkDirFunc {
 			}
 		}
 		return nil
+	}
+}
+
+
+func cliUtility() {
+	target := flag.String("t", "", "File or directory to look for")
+	stats := flag.Bool("s", false, "Show stats of src directory")
+	hiddenFiles := flag.Bool("h", false, "Include hidden files. Default No")
+	// flag.Bool("j", false, "Output JSON")
+
+	flag.Parse()
+
+	args := flag.Args()
+	if len(args) < 1 {
+		fmt.Println("Usage: gofind [flags] <startingDir>")
+		return
+	}
+	startingDir := args[0]
+
+	if *target != ""{
+		targetPath, err := findAndExit(startingDir, *target, *hiddenFiles)
+		if err != nil {
+			fmt.Println("Error: ", err)
+		} else if targetPath == "" {
+			fmt.Printf("Target %s not found\n", *target)
+		} else {
+			fmt.Printf("Target %s found at path: %s\n", *target, targetPath)
+		}
+	}	
+	if *stats == true{
+		dirStats, err := findDirStats(startingDir, *hiddenFiles)
+		if err != nil {
+				fmt.Println("Error: ", err)
+		} else {
+			printStats(dirStats)
+		}
+	}
+}
+
+// useless
+func cliMenu() { 
+	var startingDir string
+	fmt.Print("Enter Starting directory: ")
+	fmt.Scanf("%s", &startingDir)
+
+	// ADD functionality for $HOME and other CLI functionality
+
+	input := "0"
+	for input != "-1" {
+
+		fmt.Print("Enter\n  * 1 to find a file\n  * 2 for directory stats\n  * -1 to quit\n")
+		fmt.Scanf("%s", &input)
+
+		switch input {
+		case "1":
+			var target string
+			fmt.Print("Enter target: ")
+			fmt.Scanf("%s", &target)
+			var dotFilesSkip bool
+			var dotFileChar string
+			fmt.Print("skip hidden stuff (y/n): ")
+			fmt.Scanf("%s", &dotFileChar)
+
+			if dotFileChar == "y" {
+				dotFilesSkip = true
+			} else {
+				dotFilesSkip = false
+			}
+
+			targetPath, err := findAndExit(startingDir, target, dotFilesSkip)
+			if err != nil {
+				fmt.Println("Error: ", err)
+			} else if targetPath == "" {
+				fmt.Printf("Target %s not found", target)
+			} else {
+				fmt.Printf("Target %s found at path: %s\n", target, targetPath)
+			}
+		case "2":
+			dirStats, err := findDirStats(startingDir, true)
+			if err != nil {
+				fmt.Println("Error: ", err)
+			} else {
+				printStats(dirStats)
+			}
+		default:
+			fmt.Println("invalid input. try again")
+		}
 	}
 }

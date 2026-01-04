@@ -22,6 +22,6 @@ Answers questions like:
 
 ## Improvements
 - [] concurrency in go
-- [] add CLI flags and remove menu
+- [X] add CLI flags and remove menu
 - [] add more features i.e JSON tree
 - [] early exit 
