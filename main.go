@@ -2,7 +2,7 @@ package main
 
 import (
 	// "github.com/asxvi/GoFind/cmd"
-	"github.com/asxvi/GoFind/tree/main/cmd"
+	"github.com/asxvi/GoFind/cmd"
 )
 
 // cobra cli
