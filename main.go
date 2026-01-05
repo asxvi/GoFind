@@ -11,7 +11,6 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
-	// "time"
 )
 
 type Stats struct {
@@ -21,40 +20,38 @@ type Stats struct {
 	totByteSize uint64
 	// maxDepth    int64
 }
+func (res *Stats) printStats(stats Stats) {
+	fmt.Printf(`
+  Total Count: %d
+  File Count:  %d
+  Dir Count:   %d
+  Total Size:  %d bytes or %.2f gb
+  `, stats.totCount, stats.fileCount, stats.dirCount, stats.totByteSize, float64(stats.totByteSize)/1000000000.00)
+}
 
 type ScannedEntry struct {
 	Path string
 	Info fs.FileInfo
 	NumFuncCalls int
 }
-
 type ScannedResult struct {
 	Files []ScannedEntry
 	sync.Mutex
-}
-
-// mutex add file
+}``
+// mutex add file to append root path to slice
 func (res *ScannedResult) AddEntrySafe(entry ScannedEntry) {
 	res.Lock()
 	defer res.Unlock()
 	res.Files = append(res.Files, entry)
 }
 
-func printStats(stats Stats) {
-	fmt.Printf(`
-  Total Count: %d
-  File Count:  %d
-  Dir Count:   %d
-  Total Size:  %d bytes or __ gb`, stats.totCount, stats.fileCount, stats.dirCount, stats.totByteSize)
-}
-
-// gofind starting dir [-t target] [-s stats] [-h don't ignore hidden]
+// gofind [-t target] [-s stats] [-h don't ignore hidden] starting_dir
 func main() {
 	cliUtility()
 	
 	// stats, err := findDirStats("/Users/asxvi/Desktop/", false)
 	// if err == nil{
-	// 	printStats(stats)
+	// 	dirStats.printStats(dirStats)
 	// }
 
 	// for i:=1; i<=10;i++ {
@@ -71,10 +68,10 @@ func main() {
 	// 	fmt.Printf("Time for %d go routines: %s\n", i, endTime)
 	// }
 
-	b, e := goFind("/Users/asxvi/Desktop/projects", "main.go", 1, true)
+	paths, _, e := goFind("/Users/asxvi/Desktop/projects", "main.go", 1, true)
 	if e == nil{
-		fmt.Println(b)
-		fmt.Printf("b: %v\n", b)
+		fmt.Printf("paths: %v\n", paths)
+		// fmt.Printf("all: %v\n", all)
 	}else{
 		fmt.Println(e)
 	}
@@ -83,6 +80,7 @@ func main() {
 
 // have to implement our own recursive function using go routines for cc
 // returns error if error, the path if found, or empty struct if nothing found after full traversal
+// FASTER BC ONLY FINDS first instance of target and breaks out. goFind() finds all of them but requires traversing entire directory
 func findAndExitGoRoutine(startingDir string, target string, numConcurrent int) (ScannedEntry, error) {
 	var wg sync.WaitGroup
 	ctx, cancel := context.WithCancel(context.Background())
@@ -188,20 +186,18 @@ func findAndExitGoRoutine(startingDir string, target string, numConcurrent int) 
 
 // takes in startingDir, target and finds the stats for entire tree, as well as all the locations of a specific target
 // also can take in number of concurrent nodes and skipdotfiles
-// return an array of ScannedEntry, a ScannedEntry of target file(s), and error
-
+// return []ScannedEntry of paths to target, a []ScannedEntry of all files and file info, and error/nil
 // have to implement our own recursive function using go routines for cc
 // returns error if error, the path if found, or empty struct if nothing found after full traversal
-func goFind(startingDir string, target string, numConcurrent int, ignoreHiddenFiles bool) (bool, error) {
+func goFind(startingDir string, target string, numConcurrent int, ignoreHiddenFiles bool) ([]ScannedEntry, []ScannedEntry, error) {
 	var wg sync.WaitGroup
 	
+	var resArrRV ScannedResult
 	var resPathRV ScannedResult
 
 	numCPU := 1
 	semaphore := make(chan struct{}, numCPU * numConcurrent)
 	errorChan := make(chan error)
-	// resPathChan := make(chan []ScannedEntry, 1)
-	// resArrChan := make(chan []ScannedEntry,1)
 	var numFuncCalls int64		// just outta curiosity
 
 	var myCCWalkDir func(string)
@@ -220,25 +216,30 @@ func goFind(startingDir string, target string, numConcurrent int, ignoreHiddenFi
 			return
 		}
 		
-		resPathBuffer := make([]ScannedEntry, 0, len(entries))
+		resPathBuffer := make([]ScannedEntry, 0)
+		resArrBuffer := make([]ScannedEntry, 0, len(entries))
 		for _, entry := range entries{
 			fullpath := path.Join(currDir, entry.Name())			
+			info, _ := entry.Info()
 			if entry.Name() == target || fullpath == target {	// found goal, so keep track of full path
-				info, _ := entry.Info()
-				// resPathChan <- ScannedEntry{Path: fullpath, Info: info, NumFuncCalls: int(numFuncCalls)}
 				resPathBuffer = append(resPathBuffer, ScannedEntry{Path: fullpath, Info: info, NumFuncCalls: int(numFuncCalls)})
 			}
 			
-			// // recurse here
-			// if entry.IsDir(){
-			// 	wg.Add(1)
-				
-			// }
+			resArrBuffer = append(resArrBuffer, ScannedEntry{Path: fullpath, Info: info, NumFuncCalls: int(numFuncCalls)})
+			// recurse here
+			if entry.IsDir(){
+				wg.Add(1)
+				go myCCWalkDir(fullpath)
+			}
 		}
 
 		resPathRV.Lock()
 		resPathRV.Files = append(resPathRV.Files, resPathBuffer...)
 		resPathRV.Unlock()
+
+		resArrRV.Lock()
+		resArrRV.Files = append(resArrRV.Files, resArrBuffer...)
+		resArrRV.Unlock()
 	}
 
 	wg.Add(1)
@@ -252,106 +253,11 @@ func goFind(startingDir string, target string, numConcurrent int, ignoreHiddenFi
 
 	select {
 		case <- doneChan:
-			return true, nil
+			return resPathRV.Files, resArrRV.Files, nil
 		case err := <-errorChan:
-			return false, err
+			return []ScannedEntry{}, []ScannedEntry{}, err
 	}
 }
-
-// func goFind2(startingDir string, target string, numConcurrent int) ([]ScannedEntry, error) {
-// 	var wg sync.WaitGroup
-// 	var resArr ScannedResult
-// 	// var resPath ScannedEntry
-
-// 	/*		// should maybe be dynamic by end user		*/
-// 	numCPU := 1
-
-// 	// use struct bc its smallest data type, literally nothing, but can use other type
-// 	// https://stackoverflow.com/questions/52035390/why-using-chan-struct-when-wait-something-done-not-chan-interface
-// 	semaphore := make(chan struct{}, (numCPU * numConcurrent))
-// 	errorChan := make(chan error, 1) // capture errors and break out
-// 	doneChan := make(chan struct{})                                // Channel to signal completion.
-// 	resPathChan := make(chan ScannedEntry)
-// 	var numFuncCalls int64		// just outta curiosity
-	
-// 	// nested definition bc need to use functions vars
-// 	var myCCWalkDir func(string)
-// 	myCCWalkDir = func(currDir string) {
-// 		atomic.AddInt64(&numFuncCalls, 1)
-
-// 		defer wg.Done()
-// 		semaphore<-struct{}{}
-// 		defer func ()  {<-semaphore}()
-
-// 		// break out on error, otherwise try to find data
-// 		entries, err := os.ReadDir(currDir)
-// 		if err != nil {
-// 			select {
-// 				case errorChan <- err:	//just mark as error	
-// 				default:
-// 			}
-// 			return
-// 		}
-
-// 		// go thru every subfile and subdir and search for file
-// 		for _, entry := range entries {
-// 			fullpath := filepath.Join(currDir, entry.Name())
-// 			info, _ := entry.Info()
-// 			if entry.Name() == target { // FOUND and exit
-// 				resPathChan <-ScannedEntry{Path: fullpath, Info: info, NumFuncCalls: int(numFuncCalls)}
-// 			}
-
-// 			// semaphor controls traffic. if too many goroutines open at once. THIS one will just hang an wait until other one closes with the deffered slot thats released
-// 			// this ensures that WG and sema counters are synced and complete at the same time
-// 			if entry.IsDir() { 	//recursive traverse this dir
-// 				wg.Add(1)
-// 				go myCCWalkDir(fullpath) // Scan the subdirectory.
-// 			}
-
-// 			resArr.Lock()
-// 			resArr.Files = append(resArr.Files, ScannedEntry{Path: fullpath, Info: info, NumFuncCalls: int(numFuncCalls)})
-// 			resArr.Unlock()
-// 		}
-// 	}
-
-// 	startingDirInfo, err := os.Stat(startingDir)
-// 	if err != nil {
-// 		return nil, err
-// 	}
-// 	resArr.Lock()
-// 	resArr.Files = append(resArr.Files, ScannedEntry{Path: startingDir, Info: startingDirInfo, NumFuncCalls: 1})
-// 	resArr.Unlock()
-
-// 	// base cc call from startingDir
-// 	wg.Add(1)
-// 	// we add to semaphore and then start from root releasing both semaphore and wg at same time making sure wg == sema
-// 	go func() {
-// 		wg.Wait()
-// 		close(doneChan)
-// 	}()
-	
-// 	// let all goroutines cook or finish without success
-// 	finishedChan := make(chan struct{})
-// 	go func() {
-// 		wg.Wait()
-// 		close(finishedChan)
-// 	}()
-
-// 	// https://www.geeksforgeeks.org/go-language/select-statement-in-go-language/ // block until one of the channels fill
-// 	select {
-// 	case rv := <-resultChan:
-// 		return rv, nil
-// 	case err := <-errorChan:
-// 		return ScannedEntry{}, err
-// 	case <-finishedChan:
-// 		return ScannedEntry{}, nil
-// 	}
-// }
-
-
-
-
-
 
 
 // unoptimized search for file within directory tree. Exits when the file is found, or continues until exhausts search options.
@@ -457,7 +363,7 @@ func cliUtility() {
 		if err != nil {
 			fmt.Println("Error: ", err)
 		} else {
-			printStats(dirStats)
+			dirStats.printStats(dirStats)
 		}
 	}
 
@@ -507,7 +413,7 @@ func cliMenu() {
 			if err != nil {
 				fmt.Println("Error: ", err)
 			} else {
-				printStats(dirStats)
+				dirStats.printStats(dirStats)
 			}
 		default:
 			fmt.Println("invalid input. try again")
