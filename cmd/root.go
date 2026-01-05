@@ -1,30 +1,30 @@
 package cmd
 
 import (
+	"fmt"
 	"os"
 	"runtime"
-	"fmt"	
+
 	"github.com/spf13/cobra"
 )
 
 var (
 	// flags
 	startDir string
-	target string
-	workers int
+	target   string
+	workers  int
 	allFiles bool
-	stats bool
-	
+	stats    bool
+
 	// rootCmd represents the base command when called without any subcommands
- 	rootCmd = &cobra.Command{
+	rootCmd = &cobra.Command{
 		Use:   "gofind",
 		Short: "A high-performance concurrent file crawler",
 		Long: `
 	When working on larger projects, unfamiliar codebases, or just learning to program, this utility can assist in getting a quick overview of directory stucture, as well as where exactly certain files may be located (non fzf for now). Combines functionality of popular commands like du, and find while using go routines to decrease search time.`,
-		Run:   runCommand,
+		Run: runCommand,
 
-		Example: 
-`  # Search for a file in the current directory
+		Example: `  # Search for a file in the current directory
      gofind -f main.go
 
   # Search in a specific path with extra workers
@@ -34,7 +34,6 @@ var (
     gofind -d ./projects -s -a
 `,
 	}
-
 )
 
 // Execute adds all child commands to the root command and sets flags appropriately.
@@ -55,6 +54,7 @@ func init() {
 }
 
 func runCommand(cmd *cobra.Command, args []string) {
+	// fmt.Println(startDir, target, workers, allFiles, stats)
 	var foundPaths ScannedResult
 	var data ScannedResult
 	var err error
@@ -63,12 +63,12 @@ func runCommand(cmd *cobra.Command, args []string) {
 	if err != nil {
 		fmt.Printf("goFind() returned Error: %v", err)
 	}
-	
+
 	foundPaths.OutputPaths(target)
 
-	if stats{
+	if stats {
 		stats, err := convertResultToStats(data.Files)
-		if err != nil{
+		if err != nil {
 			fmt.Printf("Error converting Stats: %v", err)
 		}
 		stats.printStats(startDir)

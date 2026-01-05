@@ -4,6 +4,8 @@
 ## Motivation
 When working on larger projects, unfamiliar codebases, or just learning to program this utility can assist in getting a quick overview of directory stucture, as well as where exactly certain files may be located (non fzf for now). Combines functionality of popular commands like du, and find while using go routines to decrease search time.
 
+Note: not optimized deep directory structures i.e starting from $HOME and looking for nested file like main.go
+
 ## Features
 - Recursive directory traversal
 - File and directory counts
@@ -24,7 +26,8 @@ go install github.com/asxvi/GoFind@latest
 ## Examples
 Show an overview of etc/ directory, and find all paths for 'hosts' in etc/ directory.
 
-`gofind -dir /etc -find hosts -stats`
+Shorthand: `gofind -d . -f main.go`
+Longhand: `gofind --dir . --find main.go`
 
 Concurrently find all paths for 'main.go' within current directory with 20 nodes and without ignoring hidden folders/files.
 

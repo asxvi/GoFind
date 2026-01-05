@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"errors"
 )
 
@@ -33,7 +32,6 @@ Overview of %s:
 type ScannedEntry struct {
 	Path string
 	Info fs.FileInfo
-	NumFuncCalls int
 }
 type ScannedResult struct {
 	Files []ScannedEntry
@@ -85,21 +83,18 @@ func findAndExitGoRoutine(startingDir string, target string, numConcurrent int) 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel() // context to cancel traversing once found
 
-	/*		// should maybe be dynamic by end user		*/
-	numCPU := 1
-
 	// use struct bc its smallest data type, literally nothing, but can use other type
 	// https://stackoverflow.com/questions/52035390/why-using-chan-struct-when-wait-something-done-not-chan-interface
-	semaphore := make(chan struct{}, (numCPU * numConcurrent))
+	semaphore := make(chan struct{}, (numConcurrent))
 	errorChan := make(chan error, 1) // capture errors and break out
 	resultChan := make(chan ScannedEntry, 1)
-	var numFuncCalls int64		// just outta curiosity
+	// var numFuncCalls int64		// just outta curiosity
 
 	// nested definition bc need to use functions vars
 	var myCCWalkDir func(string)
 	myCCWalkDir = func(currDir string) {
 		// defer wg.Done() // on return decrement wg counter		// this was causing an error of negative wg count
-		atomic.AddInt64(&numFuncCalls, 1)
+		// atomic.AddInt64(&numFuncCalls, 1)
 
 		// check if another goroutine already found it
 		select {
@@ -128,7 +123,7 @@ func findAndExitGoRoutine(startingDir string, target string, numConcurrent int) 
 				
 				info, _ := entry.Info()
 				select {
-				case resultChan <- ScannedEntry{Path: fullpath, Info: info, NumFuncCalls: int(numFuncCalls)}:
+				case resultChan <- ScannedEntry{Path: fullpath, Info: info}: //NumFuncCalls: int(numFuncCalls)}:
 					cancel() // FOUND and exit and stop all go routines
 				default:
 				}
@@ -194,23 +189,24 @@ func goFind(startingDir string, target string, numConcurrent int, ignoreHiddenFi
 	var resArrRV ScannedResult
 	var resPathRV ScannedResult
 
-	numCPU := 1
-	semaphore := make(chan struct{}, numCPU * numConcurrent)
+	semaphore := make(chan struct{}, numConcurrent)
 	errorChan := make(chan error)
-	var numFuncCalls int64		// just outta curiosity
-
+	// var numFuncCalls int64		// just outta curiosity
+	
 	var myCCWalkDir func(string)
 	myCCWalkDir = func (currDir string){
-		atomic.AddInt64(&numFuncCalls,1)
-		semaphore<- struct{}{}
 		defer wg.Done()
-		defer func () {<-semaphore}()
-
+		semaphore<- struct{}{}
+		// defer func () {<-semaphore}()
+		
+		// atomic.AddInt64(&numFuncCalls,1)
 		entries, err := os.ReadDir(currDir)
+		<-semaphore	// release lock after aquired all vals in dir
 		if err != nil{
+			if os.IsPermission(err) {return }
 			select {
-			case errorChan <- errors.New("OS could not read current dir properly. Error:" + err.Error()):
-			default:
+				case errorChan <- errors.New("OS could not read current dir properly. Error:" + err.Error()):
+				default:
 			}
 			return
 		}
@@ -225,10 +221,10 @@ func goFind(startingDir string, target string, numConcurrent int, ignoreHiddenFi
 			fullpath := filepath.Join(currDir, entry.Name())			
 			info, _ := entry.Info()
 			if entry.Name() == target || fullpath == target {	// found goal, so keep track of full path
-				resPathBuffer = append(resPathBuffer, ScannedEntry{Path: fullpath, Info: info, NumFuncCalls: int(numFuncCalls)})
+				resPathBuffer = append(resPathBuffer, ScannedEntry{Path: fullpath, Info: info}) //NumFuncCalls: int(numFuncCalls)})
 			}
+			resArrBuffer = append(resArrBuffer, ScannedEntry{Path: fullpath, Info: info}) //NumFuncCalls: int(numFuncCalls)})
 			
-			resArrBuffer = append(resArrBuffer, ScannedEntry{Path: fullpath, Info: info, NumFuncCalls: int(numFuncCalls)})
 			// recurse here
 			if entry.IsDir(){
 				wg.Add(1)
@@ -247,8 +243,8 @@ func goFind(startingDir string, target string, numConcurrent int, ignoreHiddenFi
 
 	wg.Add(1)
 	go myCCWalkDir(startingDir)
-	doneChan := make(chan struct{})
 	
+	doneChan := make(chan struct{})
 	go func() {
 		wg.Wait()
 		close(doneChan)
@@ -261,7 +257,6 @@ func goFind(startingDir string, target string, numConcurrent int, ignoreHiddenFi
 			return []ScannedEntry{}, []ScannedEntry{}, err
 	}
 }
-
 
 // unoptimized search for file within directory tree. Exits when the file is found, or continues until exhausts search options.
 // returns the path of file and error
