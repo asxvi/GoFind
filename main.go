@@ -37,7 +37,7 @@ type ScannedEntry struct {
 type ScannedResult struct {
 	Files []ScannedEntry
 	sync.Mutex
-}``
+}
 // mutex add file to append root path to slice
 func (res *ScannedResult) AddEntrySafe(entry ScannedEntry) {
 	res.Lock()
@@ -45,9 +45,23 @@ func (res *ScannedResult) AddEntrySafe(entry ScannedEntry) {
 	res.Files = append(res.Files, entry)
 }
 
-// gofind [-t target] [-s stats] [-h don't ignore hidden] starting_dir
+// should be improved
+func convertResultToStats(data []ScannedEntry) (Stats, error){
+	var rv Stats
+	for _, entry := range data {
+		rv.totCount++
+		rv.totByteSize += uint64(entry.Info.Size())
+		if (entry.Info.IsDir()){
+			rv.dirCount++
+		}else{
+			rv.fileCount++
+		}
+	}
+	return rv, nil
+}
+
 func main() {
-	cliUtility()
+	// cliUtility()
 	
 	// stats, err := findDirStats("/Users/asxvi/Desktop/", false)
 	// if err == nil{
@@ -68,10 +82,13 @@ func main() {
 	// 	fmt.Printf("Time for %d go routines: %s\n", i, endTime)
 	// }
 
-	paths, _, e := goFind("/Users/asxvi/Desktop/projects", "main.go", 1, true)
+	paths, all, e := goFind("/Users/asxvi/Desktop/", "main.go", 5, true)
 	if e == nil{
 		fmt.Printf("paths: %v\n", paths)
 		// fmt.Printf("all: %v\n", all)
+		stats, _ := convertResultToStats(all)
+
+		stats.printStats(stats)
 	}else{
 		fmt.Println(e)
 	}
@@ -219,6 +236,10 @@ func goFind(startingDir string, target string, numConcurrent int, ignoreHiddenFi
 		resPathBuffer := make([]ScannedEntry, 0)
 		resArrBuffer := make([]ScannedEntry, 0, len(entries))
 		for _, entry := range entries{
+			if ignoreHiddenFiles && strings.HasPrefix(entry.Name(), "."){
+				continue
+			}
+
 			fullpath := path.Join(currDir, entry.Name())			
 			info, _ := entry.Info()
 			if entry.Name() == target || fullpath == target {	// found goal, so keep track of full path
