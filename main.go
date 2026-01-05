@@ -1,7 +1,7 @@
 package main
 
 import (
-	"goFind/cmd"
+	"github.com/asxvi/GoFind/cmd"
 )
 
 // cobra cli

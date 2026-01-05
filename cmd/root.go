@@ -3,8 +3,7 @@ package cmd
 import (
 	"os"
 	"runtime"
-	"fmt"
-	
+	"fmt"	
 	"github.com/spf13/cobra"
 )
 
@@ -21,11 +20,19 @@ var (
 		Use:   "gofind",
 		Short: "A high-performance concurrent file crawler",
 		Long: `
-	When working on larger projects, unfamiliar codebases, or just learning to program, 
-	this utility can assist in getting a quick overview of directory stucture, as well as where exactly certain files 
-	may be located (non fzf for now). Combines functionality of popular commands 
-	like du, and find while using go routines to decrease search time.`,
+	When working on larger projects, unfamiliar codebases, or just learning to program, this utility can assist in getting a quick overview of directory stucture, as well as where exactly certain files may be located (non fzf for now). Combines functionality of popular commands like du, and find while using go routines to decrease search time.`,
 		Run:   runCommand,
+
+		Example: 
+`  # Search for a file in the current directory
+     gofind -f main.go
+
+  # Search in a specific path with extra workers
+     gofind --dir /etc --find hosts --workers 20
+
+  # Get directory statistics including hidden files
+    gofind -d ./projects -s -a
+`,
 	}
 
 )

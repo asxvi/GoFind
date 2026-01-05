@@ -1,4 +1,4 @@
-module goFind
+module github.com/asxvi/GoFind
 
 go 1.25.5
 

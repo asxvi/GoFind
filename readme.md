@@ -18,6 +18,21 @@ Answers questions like:
 - How large is this directory?
 - Does a specific file exist somewhere in the tree?
 
+## Installation
+go install github.com/asxvi/GoFind@latest
+
+## Examples
+Show an overview of etc/ directory, and find all paths for 'hosts' in etc/ directory.
+
+`gofind -dir /etc -find hosts -stats`
+
+Concurrently find all paths for 'main.go' within current directory with 20 nodes and without ignoring hidden folders/files.
+
+`gofind -f main.go -w 20 -a`
+
+View the CLI man page
+
+`gofind -h`
 
 ## Improvements
 - [X] concurrency in go
