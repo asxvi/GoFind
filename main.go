@@ -61,7 +61,7 @@ func convertResultToStats(data []ScannedEntry) (Stats, error){
 }
 
 func main() {
-	// cliUtility()
+	cliUtility()
 	
 	// stats, err := findDirStats("/Users/asxvi/Desktop/", false)
 	// if err == nil{
@@ -82,16 +82,16 @@ func main() {
 	// 	fmt.Printf("Time for %d go routines: %s\n", i, endTime)
 	// }
 
-	paths, all, e := goFind("/Users/asxvi/Desktop/", "main.go", 5, true)
-	if e == nil{
-		fmt.Printf("paths: %v\n", paths)
-		// fmt.Printf("all: %v\n", all)
-		stats, _ := convertResultToStats(all)
+	// paths, all, e := goFind("/Users/asxvi/Desktop/", "main.go", 5, true)
+	// if e == nil{
+	// 	fmt.Printf("paths: %v\n", paths)
+	// 	// fmt.Printf("all: %v\n", all)
+	// 	stats, _ := convertResultToStats(all)
 
-		stats.printStats(stats)
-	}else{
-		fmt.Println(e)
-	}
+	// 	stats.printStats(stats)
+	// }else{
+	// 	fmt.Println(e)
+	// }
 
 }
 
@@ -240,7 +240,7 @@ func goFind(startingDir string, target string, numConcurrent int, ignoreHiddenFi
 				continue
 			}
 
-			fullpath := path.Join(currDir, entry.Name())			
+			fullpath := filepath.Join(currDir, entry.Name())			
 			info, _ := entry.Info()
 			if entry.Name() == target || fullpath == target {	// found goal, so keep track of full path
 				resPathBuffer = append(resPathBuffer, ScannedEntry{Path: fullpath, Info: info, NumFuncCalls: int(numFuncCalls)})
@@ -353,11 +353,22 @@ func findDirStatsFunc(dotfilesSkip bool, stats *Stats) fs.WalkDirFunc {
 	}
 }
 
+
+// compares the findDir function version vs concurrent version. 
+func finDirVSconcurrencyComparison() {
+	return
+}
+
+// compares the relationship between go routines and total time/ performance
+func concurrencyComparison() {
+	
+}
+
 // cli utility to be optimized using cobra and viper 
 func cliUtility() {
 	target := flag.String("t", "", "File or directory to look for")
 	stats := flag.Bool("s", false, "Show stats of src directory")
-	hiddenFiles := flag.Bool("h", false, "Include hidden files. Default No")
+	hiddenFiles := flag.Bool("i", false, "Include hidden files. Default No")
 	// flag.Bool("j", false, "Output JSON")
 
 	flag.Parse()
