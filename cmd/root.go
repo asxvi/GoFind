@@ -1,48 +1,34 @@
-/*
-Copyright © 2026 asxvi
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in
-all copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-THE SOFTWARE.
-*/
 package cmd
 
 import (
 	"os"
-
+	"runtime"
+	"fmt"
+	
 	"github.com/spf13/cobra"
 )
 
+var (
+	// flags
+	startDir string
+	target string
+	workers int
+	allFiles bool
+	stats bool
+	
+	// rootCmd represents the base command when called without any subcommands
+ 	rootCmd = &cobra.Command{
+		Use:   "gofind",
+		Short: "A high-performance concurrent file crawler",
+		Long: `
+	When working on larger projects, unfamiliar codebases, or just learning to program, 
+	this utility can assist in getting a quick overview of directory stucture, as well as where exactly certain files 
+	may be located (non fzf for now). Combines functionality of popular commands 
+	like du, and find while using go routines to decrease search time.`,
+		Run:   runCommand,
+	}
 
-
-// rootCmd represents the base command when called without any subcommands
-var rootCmd = &cobra.Command{
-	Use:   "goFind",
-	Short: "A brief description of your application",
-	Long: `A longer description that spans multiple lines and likely contains
-examples and usage of using your application. For example:
-
-Cobra is a CLI library for Go that empowers applications.
-This application is a tool to generate the needed files
-to quickly create a Cobra application.`,
-	// Uncomment the following line if your bare application
-	// has an action associated with it:
-	// Run: func(cmd *cobra.Command, args []string) { },
-}
+)
 
 // Execute adds all child commands to the root command and sets flags appropriately.
 // This is called by main.main(). It only needs to happen once to the rootCmd.
@@ -54,15 +40,30 @@ func Execute() {
 }
 
 func init() {
-	// Here you will define your flags and configuration settings.
-	// Cobra supports persistent flags, which, if defined here,
-	// will be global for your application.
-
-	// rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.goFind.yaml)")
-
-	// Cobra also supports local flags, which will only run
-	// when this action is called directly.
-	rootCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
+	rootCmd.Flags().StringVarP(&startDir, "dir", "d", ".", "Starting directory")
+	rootCmd.Flags().StringVarP(&target, "find", "f", "", "Target filename to search for")
+	rootCmd.Flags().IntVarP(&workers, "workers", "w", runtime.NumCPU(), "Parallel workers")
+	rootCmd.Flags().BoolVarP(&allFiles, "all", "a", false, "Include hidden files")
+	rootCmd.Flags().BoolVarP(&stats, "stats", "s", false, "Show Directory Statistics")
 }
 
+func runCommand(cmd *cobra.Command, args []string) {
+	var foundPaths ScannedResult
+	var data ScannedResult
+	var err error
 
+	foundPaths.Files, data.Files, err = goFind(startDir, target, workers, allFiles)
+	if err != nil {
+		fmt.Printf("goFind() returned Error: %v", err)
+	}
+	
+	foundPaths.OutputPaths(target)
+
+	if stats{
+		stats, err := convertResultToStats(data.Files)
+		if err != nil{
+			fmt.Printf("Error converting Stats: %v", err)
+		}
+		stats.printStats(startDir)
+	}
+}

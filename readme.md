@@ -23,5 +23,7 @@ Answers questions like:
 - [X] concurrency in go
 - [X] add CLI flags and remove menu
 - [X] early exit 
+- [X] switch CLI tool to use cobra and viper rather than flag
+- [] handle system errors
+- [] add Comparison and benchmarks
 - [] add more features i.e JSON tree (idk if logical when working with 50k files)
-- [] switch CLI tool to use cobra and viper rather than flag
