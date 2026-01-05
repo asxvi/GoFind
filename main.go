@@ -6,11 +6,12 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
-	"time"
+	// "time"
 )
 
 type Stats struct {
@@ -18,22 +19,25 @@ type Stats struct {
 	fileCount   int64
 	dirCount    int64
 	totByteSize uint64
-	maxDepth    int64
+	// maxDepth    int64
 }
 
-type ScannedFile2 struct {
+type ScannedEntry struct {
 	Path string
 	Info fs.FileInfo
+	NumFuncCalls int
+}
+
+type ScannedResult struct {
+	Files []ScannedEntry
 	sync.Mutex
 }
 
-type ScannedFile struct {
-	Path string
-	Info fs.FileInfo
-}
-type ScanResult struct {
-	Files []ScannedFile
-	sync.Mutex
+// mutex add file
+func (res *ScannedResult) AddEntrySafe(entry ScannedEntry) {
+	res.Lock()
+	defer res.Unlock()
+	res.Files = append(res.Files, entry)
 }
 
 func printStats(stats Stats) {
@@ -41,64 +45,71 @@ func printStats(stats Stats) {
   Total Count: %d
   File Count:  %d
   Dir Count:   %d
-  Total Size:  %d bytes or __ gb
-	`, stats.totCount, stats.fileCount, stats.dirCount, stats.totByteSize)
+  Total Size:  %d bytes or __ gb`, stats.totCount, stats.fileCount, stats.dirCount, stats.totByteSize)
 }
 
 // gofind starting dir [-t target] [-s stats] [-h don't ignore hidden]
 func main() {
 	cliUtility()
+	
+	// stats, err := findDirStats("/Users/asxvi/Desktop/", false)
+	// if err == nil{
+	// 	printStats(stats)
+	// }
 
-	for i:=1; i<=10;i++ {
-		startTime := time.Now()
-		res, e := findAndExitGoRoutine("/Users/asxvi/Desktop/", "Assessment1SampleQuestions.pdf", i)
+	// for i:=1; i<=10;i++ {
+	// 	startTime := time.Now()
+	// 	res, e := findAndExitGoRoutine("/Users/asxvi/Desktop/", "Assessment1SampleQuestions.pdf", i)
 
-		// /Users/asxvi/Downloads/Assessment1SampleQuestions.pdf
-		if e != nil {
-			fmt.Printf("error: %s\n", e)
-		} else {
-			fmt.Printf("%s\n", res.Path)
-		}
-		endTime := time.Since(startTime)
+	// 	if e != nil {
+	// 		fmt.Printf("error: %s\n", e)
+	// 	} else {
+	// 		fmt.Printf("%s\n", res.Path)
+	// 	}
+	// 	endTime := time.Since(startTime)
 
-		fmt.Printf("Time for %d go routines: %s\n", i, endTime)
+	// 	fmt.Printf("Time for %d go routines: %s\n", i, endTime)
+	// }
+
+	b, e := goFind("/Users/asxvi/Desktop/projects", "main.go", 1, true)
+	if e == nil{
+		fmt.Println(b)
+		fmt.Printf("b: %v\n", b)
+	}else{
+		fmt.Println(e)
 	}
+
 }
 
 // have to implement our own recursive function using go routines for cc
-// returns error if error, the path if found, or "" if nothing found after full traversal
-func findAndExitGoRoutine(startingDir string, target string, numConcurrent int) (ScannedFile2, error) {
+// returns error if error, the path if found, or empty struct if nothing found after full traversal
+func findAndExitGoRoutine(startingDir string, target string, numConcurrent int) (ScannedEntry, error) {
 	var wg sync.WaitGroup
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel() // context to cancel traversing once found
 
-	/*		// should be dynamic by end user		*/
+	/*		// should maybe be dynamic by end user		*/
 	numCPU := 1
-	// numConcurrent := 4
 
 	// use struct bc its smallest data type, literally nothing, but can use other type
 	// https://stackoverflow.com/questions/52035390/why-using-chan-struct-when-wait-something-done-not-chan-interface
 	semaphore := make(chan struct{}, (numCPU * numConcurrent))
 	errorChan := make(chan error, 1) // capture errors and break out
-	resultChan := make(chan ScannedFile2, 1)
+	resultChan := make(chan ScannedEntry, 1)
+	var numFuncCalls int64		// just outta curiosity
 
-	var numFuncCalls int64
+	// nested definition bc need to use functions vars
 	var myCCWalkDir func(string)
-	// can perhaps declare this outside or nah bc vars wont be local and will have to pass by ref
 	myCCWalkDir = func(currDir string) {
-		// defer wg.Done() // on return decrement wg counter		// this was causing an error
+		// defer wg.Done() // on return decrement wg counter		// this was causing an error of negative wg count
 		atomic.AddInt64(&numFuncCalls, 1)
-		// fmt.Println(wg)
 
 		// check if another goroutine already found it
 		select {
-		case <-ctx.Done():
-			return
-		default:
+			case <-ctx.Done():
+				return
+			default:
 		}
-
-		// semaphore <- struct{}{}	// read in / aquire slot
-		// defer func() {<-semaphore}()	// release slot
 
 		// break out on error, otherwise try to find data
 		entries, err := os.ReadDir(currDir)
@@ -110,67 +121,56 @@ func findAndExitGoRoutine(startingDir string, target string, numConcurrent int) 
 			}
 			return
 		}
+
 		// go thru every subfile and subdir and search for file
 		for _, entry := range entries {
-			// if err != nil{
-			// 	select {
-			// 		case errorChan <-err:
-			// 			cancel()		// stop all other go rutines on error
-			// 		default:
-			// 	}
-			// 	continue
-			// }
-
 			fullpath := filepath.Join(currDir, entry.Name())
 			if entry.Name() == target { // FOUND and exit
 				// fmt.Println("FOUND THE TARGET AT ")
-				// fmt.Println(ScannedFile2{Path: fullpath, Info: info})
+				// fmt.Println(ScannedEntry{Path: fullpath, Info: info})
 				
 				info, _ := entry.Info()
 				select {
-				case resultChan <- ScannedFile2{Path: fullpath, Info: info}:
+				case resultChan <- ScannedEntry{Path: fullpath, Info: info, NumFuncCalls: int(numFuncCalls)}:
 					cancel() // FOUND and exit and stop all go routines
 				default:
 				}
 				return
 			}
 
-			// add to wg. add slot to sema. run recrusive (releases wg) routine and unblock sema
-			if entry.IsDir() { //recursive traverse this dir
-				// fmt.Println("another dir")
+			// semaphor controls traffic. if too many goroutines open at once. THIS one will just hang an wait until other one closes with the deffered slot thats released
+			// this ensures that WG and sema counters are synced and complete at the same time
+			if entry.IsDir() { 	//recursive traverse this dir
 				wg.Add(1)
-
-				go func(p string) {
+				go func(fp string) {
 					semaphore <- struct{}{}
-					// release slot and degrement WG
 					defer func() {
 						<-semaphore
 						wg.Done()
-					}() // release slot
-					myCCWalkDir(p)
+						}() // release slot and decrement WG at SAME time
+					
+					myCCWalkDir(fp)		// repeat til any of the 3 cases are reached
 				}(fullpath)
 			}
 		}
-	} // sempahore slot released
+	}
 
 	// base cc call from startingDir
 	wg.Add(1)
-	// go myCCWalkDir(startingDir)
+	// we add to semaphore and then start from root releasing both semaphore and wg at same time making sure wg == sema
 	go func() {
 		semaphore <- struct{}{}
-		// release slot and degrement WG
 		defer func() {
 			<-semaphore
 			wg.Done()
-		}() // release slot
-		myCCWalkDir(startingDir)
+		}() // release slot and decrement WG at SAME time
+		myCCWalkDir(startingDir)	//root
 	}()
 	
 	
-	finishedChan := make(chan struct{}) // signal done and exit
-	// let all goroutines cook
+	// let all goroutines cook or finish without success
+	finishedChan := make(chan struct{})
 	go func() {
-		// fmt.Println("waiting")
 		wg.Wait()
 		close(finishedChan)
 	}()
@@ -178,17 +178,185 @@ func findAndExitGoRoutine(startingDir string, target string, numConcurrent int) 
 	// https://www.geeksforgeeks.org/go-language/select-statement-in-go-language/ // block until one of the channels fill
 	select {
 	case rv := <-resultChan:
-		// fmt.Println("rChan")
 		return rv, nil
 	case err := <-errorChan:
-		// fmt.Println("eChan")
-		return ScannedFile2{}, err
+		return ScannedEntry{}, err
 	case <-finishedChan:
-		// fmt.Println("doneChan")
-		return ScannedFile2{}, nil
+		return ScannedEntry{}, nil
 	}
 }
 
+// takes in startingDir, target and finds the stats for entire tree, as well as all the locations of a specific target
+// also can take in number of concurrent nodes and skipdotfiles
+// return an array of ScannedEntry, a ScannedEntry of target file(s), and error
+
+// have to implement our own recursive function using go routines for cc
+// returns error if error, the path if found, or empty struct if nothing found after full traversal
+func goFind(startingDir string, target string, numConcurrent int, ignoreHiddenFiles bool) (bool, error) {
+	var wg sync.WaitGroup
+	
+	var resPathRV ScannedResult
+
+	numCPU := 1
+	semaphore := make(chan struct{}, numCPU * numConcurrent)
+	errorChan := make(chan error)
+	// resPathChan := make(chan []ScannedEntry, 1)
+	// resArrChan := make(chan []ScannedEntry,1)
+	var numFuncCalls int64		// just outta curiosity
+
+	var myCCWalkDir func(string)
+	myCCWalkDir = func (currDir string){
+		atomic.AddInt64(&numFuncCalls,1)
+		semaphore<- struct{}{}
+		defer wg.Done()
+		defer func () {<-semaphore}()
+
+		entries, err := os.ReadDir(currDir)
+		if err != nil{
+			select {
+			case errorChan <- err:
+			default:
+			}
+			return
+		}
+		
+		resPathBuffer := make([]ScannedEntry, 0, len(entries))
+		for _, entry := range entries{
+			fullpath := path.Join(currDir, entry.Name())			
+			if entry.Name() == target || fullpath == target {	// found goal, so keep track of full path
+				info, _ := entry.Info()
+				// resPathChan <- ScannedEntry{Path: fullpath, Info: info, NumFuncCalls: int(numFuncCalls)}
+				resPathBuffer = append(resPathBuffer, ScannedEntry{Path: fullpath, Info: info, NumFuncCalls: int(numFuncCalls)})
+			}
+			
+			// // recurse here
+			// if entry.IsDir(){
+			// 	wg.Add(1)
+				
+			// }
+		}
+
+		resPathRV.Lock()
+		resPathRV.Files = append(resPathRV.Files, resPathBuffer...)
+		resPathRV.Unlock()
+	}
+
+	wg.Add(1)
+	go myCCWalkDir(startingDir)
+	doneChan := make(chan struct{})
+	
+	go func() {
+		wg.Wait()
+		close(doneChan)
+	}()
+
+	select {
+		case <- doneChan:
+			return true, nil
+		case err := <-errorChan:
+			return false, err
+	}
+}
+
+// func goFind2(startingDir string, target string, numConcurrent int) ([]ScannedEntry, error) {
+// 	var wg sync.WaitGroup
+// 	var resArr ScannedResult
+// 	// var resPath ScannedEntry
+
+// 	/*		// should maybe be dynamic by end user		*/
+// 	numCPU := 1
+
+// 	// use struct bc its smallest data type, literally nothing, but can use other type
+// 	// https://stackoverflow.com/questions/52035390/why-using-chan-struct-when-wait-something-done-not-chan-interface
+// 	semaphore := make(chan struct{}, (numCPU * numConcurrent))
+// 	errorChan := make(chan error, 1) // capture errors and break out
+// 	doneChan := make(chan struct{})                                // Channel to signal completion.
+// 	resPathChan := make(chan ScannedEntry)
+// 	var numFuncCalls int64		// just outta curiosity
+	
+// 	// nested definition bc need to use functions vars
+// 	var myCCWalkDir func(string)
+// 	myCCWalkDir = func(currDir string) {
+// 		atomic.AddInt64(&numFuncCalls, 1)
+
+// 		defer wg.Done()
+// 		semaphore<-struct{}{}
+// 		defer func ()  {<-semaphore}()
+
+// 		// break out on error, otherwise try to find data
+// 		entries, err := os.ReadDir(currDir)
+// 		if err != nil {
+// 			select {
+// 				case errorChan <- err:	//just mark as error	
+// 				default:
+// 			}
+// 			return
+// 		}
+
+// 		// go thru every subfile and subdir and search for file
+// 		for _, entry := range entries {
+// 			fullpath := filepath.Join(currDir, entry.Name())
+// 			info, _ := entry.Info()
+// 			if entry.Name() == target { // FOUND and exit
+// 				resPathChan <-ScannedEntry{Path: fullpath, Info: info, NumFuncCalls: int(numFuncCalls)}
+// 			}
+
+// 			// semaphor controls traffic. if too many goroutines open at once. THIS one will just hang an wait until other one closes with the deffered slot thats released
+// 			// this ensures that WG and sema counters are synced and complete at the same time
+// 			if entry.IsDir() { 	//recursive traverse this dir
+// 				wg.Add(1)
+// 				go myCCWalkDir(fullpath) // Scan the subdirectory.
+// 			}
+
+// 			resArr.Lock()
+// 			resArr.Files = append(resArr.Files, ScannedEntry{Path: fullpath, Info: info, NumFuncCalls: int(numFuncCalls)})
+// 			resArr.Unlock()
+// 		}
+// 	}
+
+// 	startingDirInfo, err := os.Stat(startingDir)
+// 	if err != nil {
+// 		return nil, err
+// 	}
+// 	resArr.Lock()
+// 	resArr.Files = append(resArr.Files, ScannedEntry{Path: startingDir, Info: startingDirInfo, NumFuncCalls: 1})
+// 	resArr.Unlock()
+
+// 	// base cc call from startingDir
+// 	wg.Add(1)
+// 	// we add to semaphore and then start from root releasing both semaphore and wg at same time making sure wg == sema
+// 	go func() {
+// 		wg.Wait()
+// 		close(doneChan)
+// 	}()
+	
+// 	// let all goroutines cook or finish without success
+// 	finishedChan := make(chan struct{})
+// 	go func() {
+// 		wg.Wait()
+// 		close(finishedChan)
+// 	}()
+
+// 	// https://www.geeksforgeeks.org/go-language/select-statement-in-go-language/ // block until one of the channels fill
+// 	select {
+// 	case rv := <-resultChan:
+// 		return rv, nil
+// 	case err := <-errorChan:
+// 		return ScannedEntry{}, err
+// 	case <-finishedChan:
+// 		return ScannedEntry{}, nil
+// 	}
+// }
+
+
+
+
+
+
+
+// unoptimized search for file within directory tree. Exits when the file is found, or continues until exhausts search options.
+// returns the path of file and error
+// unused after implementing concurrent version, but keep as backup and comparison between the two 
 func findAndExit(startingDir string, target string, dotFilesSkip bool) (string, error) {
 	var rv string
 	err := filepath.WalkDir(startingDir, findAndExitFunc(target, dotFilesSkip, &rv))
@@ -199,7 +367,7 @@ func findAndExit(startingDir string, target string, dotFilesSkip bool) (string, 
 	return rv, err
 }
 
-// return a WalkDirFunc later called
+// return a WalkDirFunc that is called later
 func findAndExitFunc(target string, dotfilesSkip bool, rv *string) fs.WalkDirFunc {
 	return func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -215,6 +383,9 @@ func findAndExitFunc(target string, dotfilesSkip bool, rv *string) fs.WalkDirFun
 	}
 }
 
+// unoptimized aggregation of directory stats. Computes a Stats struct without using concurrency
+// returns Stats struct and error
+// unused after implementing concurrent version, but keep as backup and comparison between the two 
 func findDirStats(startingDir string, dotFilesSkip bool) (Stats, error) {
 	var rv Stats
 	err := filepath.WalkDir(startingDir, findDirStatsFunc(dotFilesSkip, &rv))
@@ -225,6 +396,7 @@ func findDirStats(startingDir string, dotFilesSkip bool) (Stats, error) {
 	return rv, err
 }
 
+// the fs.WalkDirFunc helper that is passed in as second parameter in WalkDir method
 func findDirStatsFunc(dotfilesSkip bool, stats *Stats) fs.WalkDirFunc {
 	return func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -254,6 +426,7 @@ func findDirStatsFunc(dotfilesSkip bool, stats *Stats) fs.WalkDirFunc {
 	}
 }
 
+// cli utility to be optimized using cobra and viper 
 func cliUtility() {
 	target := flag.String("t", "", "File or directory to look for")
 	stats := flag.Bool("s", false, "Show stats of src directory")
@@ -287,9 +460,11 @@ func cliUtility() {
 			printStats(dirStats)
 		}
 	}
+
+	fmt.Println("CLI util\n\n\n")
 }
 
-// useless
+// useless and unused because nobody want to navigate an ugly terminal gui
 func cliMenu() {
 	var startingDir string
 	fmt.Print("Enter Starting directory: ")

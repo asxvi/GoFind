@@ -1,9 +1,8 @@
 # goFind
-<!-- #### A CLI utility for getting overview of projects and directories. -->
-### A safe, readable alternative to find + du
+#### A concurrent CLI utility for getting overview of projects and directories.
 
 ## Motivation
-When working on larger projects, unfamiliar codebases, or just learning to program this utility can assist in understanding what you are working with.
+When working on larger projects, unfamiliar codebases, or just learning to program this utility can assist in getting a quick overview of directory stucture, as well as where exactly certain files may be located (non fzf for now). Combines functionality of popular commands like du, and find while using go routines to decrease search time.
 
 ## Features
 - Recursive directory traversal
@@ -21,7 +20,8 @@ Answers questions like:
 
 
 ## Improvements
-- [] concurrency in go
+- [X] concurrency in go
 - [X] add CLI flags and remove menu
-- [] add more features i.e JSON tree
-- [] early exit 
+- [X] early exit 
+- [] add more features i.e JSON tree (idk if logical when working with 50k files)
+- [] switch CLI tool to use cobra and viper rather than flag
